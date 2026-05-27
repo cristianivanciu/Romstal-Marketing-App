@@ -1156,6 +1156,10 @@ function renderCard(row, idx) {
   const categorie = row['Categorie proiect'] || '';
   const photos = row._photos || [];
 
+  const isApproved = isAprobat(status);
+  const isRejected = isRespins(status);
+  const isPending  = !isApproved && !isRejected;
+
   const statusBadge = isPending ? getStatusBadge(status) : '';
 
   const FIELD_META = {
@@ -1203,10 +1207,6 @@ function renderCard(row, idx) {
         </label>
       </div>
     </div>`;
-
-  const isApproved = isAprobat(status);
-  const isRejected = isRespins(status);
-  const isPending  = !isApproved && !isRejected;
 
   const approvalStrip = isPending ? `
     <div class="approval-strip">
