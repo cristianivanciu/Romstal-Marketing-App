@@ -2170,6 +2170,21 @@ function downloadAppsScript() {
 const SHEET_NAME = 'Database';
 const PROJECTS_SHEET = 'Proiecte';
 
+// ── Helpers dată săptămână ──────────────────────────────────────────────────
+var RO_MONTHS_AS = {ian:0,ianuarie:0,feb:1,februarie:1,mar:2,martie:2,apr:3,aprilie:3,
+  mai:4,iun:5,iunie:5,iul:6,iulie:6,aug:7,august:7,sep:8,septembrie:8,
+  oct:9,octombrie:9,nov:10,noiembrie:10,dec:11,decembrie:11};
+function parseWeekDateAS(name) {
+  var s = (name || '').toLowerCase();
+  var yr = 2026;
+  var yrM = s.match(/\b(20\d\d)\b/); if (yrM) yr = parseInt(yrM[1]);
+  var mo = 0;
+  var keys = Object.keys(RO_MONTHS_AS).sort(function(a,b){return b.length-a.length;});
+  for (var i=0;i<keys.length;i++) { if (s.indexOf(keys[i]) !== -1) { mo = RO_MONTHS_AS[keys[i]]; break; } }
+  var dayM = s.match(/\b(\d{1,2})\b/); var day = dayM ? parseInt(dayM[1]) : 1;
+  return new Date(yr, mo, day).getTime();
+}
+
 // ── Helpers status ─────────────────────────────────────────────────────────
 function isAprobat(status) {
   var s = (status || '').toLowerCase().trim();
@@ -2299,10 +2314,14 @@ function doPost(e) {
       'Centru Descarcare','Regiune','Solicitant','Perioada','Buget (€ fara TVA)',
       'Segment','Tip Obiectiv','Nr Participanti','Obiectiv Vanzare (€)','ROI',
       'Explicatii Obiectiv','Observatii','Status','Adaugat De','Adaugat La'];
+    // Sortăm cel mai nou primul — fiecare proiect apare sub săptămâna cea mai recentă
+    const weeksForProiecte = [...finalWeeks].sort(function(a,b){
+      return parseWeekDateAS(b.week) - parseWeekDateAS(a.week);
+    });
     const dataRows = [];
     const bgColors = [];
     const seenIds = new Set(); // dedup: fiecare _id apare o singură dată în Proiecte
-    for (const week of finalWeeks) {
+    for (const week of weeksForProiecte) {
       for (const r of (week.rows || [])) {
         if (r._id) {
           if (seenIds.has(r._id)) continue;
