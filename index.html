@@ -2443,6 +2443,135 @@ function writeBugetSummary(ss, summary) {
   sh.getRange(5,2).setFontColor(summary.disponibil > 0 ? '#16a34a' : '#dc2626').setFontWeight('bold');
 }
 
+// ── cleanupDuplicates: rulează DIRECT din editorul Apps Script ─────────────
+// Instrucțiuni: deschide script.google.com > selectează funcția cleanupDuplicates
+// din meniu > Run. Nu necesită redeploy!
+// Șterge duplicatele din foile Database și Proiecte.
+function cleanupDuplicates() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet || sheet.getLastRow() === 0) {
+    SpreadsheetApp.getUi().alert('Foaia Database este goală.');
+    return;
+  }
+
+  // 1. Citim toate datele din Database
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), 2).getValues();
+  var users = ['Admin','Marketing','Finante'];
+  var deletedIds = [];
+  var weeks = [];
+
+  for (var i = 0; i < data.length; i++) {
+    var row = data[i];
+    if (row[0] === '__USERS__') {
+      try { users = JSON.parse(row[1]); } catch(e) {}
+    } else if (row[0] === '__DELETED_IDS__') {
+      try { deletedIds = JSON.parse(row[1]); } catch(e) {}
+    } else if (row[0] && row[1]) {
+      try { weeks.push(JSON.parse(row[1])); } catch(e) {}
+    }
+  }
+
+  var deletedSet = new Set(deletedIds);
+
+  // 2. Filtrăm rândurile șterse din fiecare săptămână
+  weeks = weeks.map(function(w) {
+    return Object.assign({}, w, {
+      rows: (w.rows || []).filter(function(r) {
+        return !r._id || !deletedSet.has(r._id);
+      })
+    });
+  });
+
+  // 3. Dedup cross-săptămână: cel mai nou câștigă — prima apariție a fiecărui _id
+  weeks = weeks
+    .slice()
+    .sort(function(a, b) { return parseWeekDateAS(b.week) - parseWeekDateAS(a.week); });
+
+  var seenIds = new Set();
+  var seenContent = new Set();
+  weeks = weeks.map(function(w) {
+    var rows = (w.rows || []).filter(function(r) {
+      if (r._id) {
+        if (seenIds.has(r._id)) return false;
+        seenIds.add(r._id);
+      }
+      var name = ((r['Denumire Proiect'] || r['Denumire'] || '')).trim().toLowerCase();
+      if (name) {
+        var ck = name + '||' + (r['Solicitant'] || '').toLowerCase() + '||' + (r['Buget (euro fara TVA)'] || '');
+        if (seenContent.has(ck)) return false;
+        seenContent.add(ck);
+      }
+      return true;
+    });
+    return Object.assign({}, w, { rows: rows });
+  });
+
+  // 4. Rescrie foaia Database (curat, fără duplicate)
+  sheet.clearContents();
+  var dbRows = [
+    ['__USERS__', JSON.stringify(users)],
+    ['__DELETED_IDS__', JSON.stringify(deletedIds)]
+  ];
+  for (var j = 0; j < weeks.length; j++) {
+    dbRows.push([weeks[j].week || '', JSON.stringify(weeks[j])]);
+  }
+  if (dbRows.length > 0) sheet.getRange(1, 1, dbRows.length, 2).setValues(dbRows);
+
+  // 5. Rescrie foaia Proiecte (curat, fără duplicate)
+  var headers = ['Săptămână','Nr Crt','Data Solicitare','Categorie','Denumire Proiect',
+    'Centru Descarcare','Regiune','Solicitant','Perioada','Buget (€ fara TVA)',
+    'Segment','Tip Obiectiv','Nr Participanti','Obiectiv Vanzare (€)','ROI',
+    'Explicatii Obiectiv','Observatii','Status','Adaugat De','Adaugat La'];
+
+  var dataRows = [];
+  var bgColors = [];
+  var seenIdsP = new Set();
+
+  for (var k = 0; k < weeks.length; k++) {
+    var week = weeks[k];
+    for (var m = 0; m < (week.rows || []).length; m++) {
+      var r = week.rows[m];
+      if (r._id) {
+        if (seenIdsP.has(r._id)) continue;
+        seenIdsP.add(r._id);
+      }
+      var status = r['Status'] || r['Aprobare (notite Andu din sedinta cu dl Perini)'] || '';
+      dataRows.push([
+        week.week || '', r['Nr crt'] || '', r['Data solicitare'] || '',
+        r['Categorie proiect'] || '', r['Denumire Proiect'] || r['Denumire'] || '',
+        r['Centru descarcare'] || '', r['Regiune'] || '', r['Solicitant'] || '',
+        r['Perioada'] || '', r['Buget (euro fara TVA)'] || '', r['Segment'] || '',
+        r['Tip obiectoiv'] || '', r['nr participanti'] || '',
+        r['obiectiv vanzare suplimentara'] || '', r['ROI'] || '',
+        r['Explicatii Obiectiv'] || '', r['Observatii'] || '', status,
+        r['_createdBy'] || '',
+        r['_createdAt'] ? r['_createdAt'].substring(0, 10) : ''
+      ]);
+      var color = isAprobat(status) ? '#d9ead3' : isRespins(status) ? '#fce8e6' : '#ffffff';
+      bgColors.push(Array(headers.length).fill(color));
+    }
+  }
+
+  var ps = ss.getSheetByName(PROJECTS_SHEET) || ss.insertSheet(PROJECTS_SHEET);
+  ps.clearContents();
+  ps.getRange(1, 1, 1, headers.length).setValues([headers])
+    .setBackground('#1a3a6b').setFontColor('#ffffff').setFontWeight('bold');
+  if (dataRows.length > 0) {
+    ps.getRange(2, 1, dataRows.length, headers.length).setValues(dataRows);
+    ps.getRange(2, 1, dataRows.length, headers.length).setBackgrounds(bgColors);
+  }
+  ps.setFrozenRows(1);
+  ps.setColumnWidth(1, 180);
+  ps.setColumnWidth(5, 250);
+
+  SpreadsheetApp.getUi().alert(
+    'Curățare finalizată!\n' +
+    'Săptămâni procesate: ' + weeks.length + '\n' +
+    'Rânduri în foaia Proiecte: ' + dataRows.length
+  );
+}
+
 // ── jsonOk: helper răspuns JSON ────────────────────────────────────────────
 function jsonOk(obj) {
   const out = ContentService.createTextOutput(JSON.stringify(obj));
