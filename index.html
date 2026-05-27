@@ -486,9 +486,23 @@ function normalizeRow(r) {
 
 function stripPhotosForSync(weeks) {
   const currentYear = new Date().getFullYear();
-  return weeks
+  // Sortăm cel mai nou primul, filtrăm după an, normalizăm rândurile
+  const sorted = weeks
     .filter(w => { try { return parseWeekDate(w.week).getFullYear() === currentYear; } catch(e) { return false; } })
+    .sort((a, b) => parseWeekDate(b.week) - parseWeekDate(a.week))
     .map(w => ({ ...w, rows: w.rows.map(normalizeRow) }));
+  // Fiecare _id apare o singură dată — în săptămâna cea mai recentă
+  // Elimină duplicatele cross-săptămână din foaia Proiecte fără redeploy AS
+  const seenIds = new Set();
+  return sorted.map(w => ({
+    ...w,
+    rows: w.rows.filter(r => {
+      if (!r._id) return true;
+      if (seenIds.has(r._id)) return false;
+      seenIds.add(r._id);
+      return true;
+    })
+  }));
 }
 
 function computeBugetSummary() {
