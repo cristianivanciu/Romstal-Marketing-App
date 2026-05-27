@@ -2309,6 +2309,30 @@ function doPost(e) {
       }
     }
 
+    // Dedup cross-săptămână: fiecare _id apare o singură dată — în săptămâna cea mai recentă
+    // Rezolvă dublarea în foaia Proiecte indiferent de ordine sau de versiunea AS anterioară
+    var _crossWeekSeen = new Set();
+    var _crossWeekContent = new Set();
+    finalWeeks = finalWeeks
+      .slice()
+      .sort(function(a,b){ return parseWeekDateAS(b.week) - parseWeekDateAS(a.week); })
+      .map(function(w) {
+        var rows = (w.rows || []).filter(function(r) {
+          if (r._id) {
+            if (_crossWeekSeen.has(r._id)) return false;
+            _crossWeekSeen.add(r._id);
+          }
+          var name = ((r['Denumire Proiect']||r['Denumire']||'')).trim().toLowerCase();
+          if (name) {
+            var ck = name+'||'+(r['Solicitant']||'').toLowerCase()+'||'+(r['Buget (euro fara TVA)']||'');
+            if (_crossWeekContent.has(ck)) return false;
+            _crossWeekContent.add(ck);
+          }
+          return true;
+        });
+        return Object.assign({}, w, {rows: rows});
+      });
+
     // 2. Salvează JSON în tab-ul Database (secțiunea critică — sub lock)
     let sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
     sheet.clearContents();
