@@ -987,7 +987,12 @@ function isRespins(rawStatus) {
   return s === 'respins' || s.startsWith('respins ') || s === 'nu';
 }
 function rowStatus(r) {
-  return r['Status'] || r['Aprobare (notite Andu din sedinta cu dl Perini)'] || '';
+  const s = r['Status'] || '';
+  const a = r['Aprobare (notite Andu din sedinta cu dl Perini)'] || '';
+  // Date vechi: Status='In analiza' dar Aprobare='Aprobat' — preferăm câmpul cu status final
+  if (isAprobat(s) || isRespins(s)) return s;
+  if (isAprobat(a) || isRespins(a)) return a;
+  return s || a || '';
 }
 
 function showView(v) {
