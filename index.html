@@ -1277,7 +1277,7 @@ function renderCard(row, idx) {
       <div class="card-actions">
         <button class="toggle-blue" onclick="toggleBlue(event,'blue-${id}')"><i data-lucide="chevrons-down" class="lucide"></i> Detalii</button>
         ${isPending ? `<button class="btn btn-ghost btn-sm" onclick="editProject('${id}')"><i data-lucide="pencil" class="lucide"></i></button>` : ''}
-        ${isPending ? `<button class="btn btn-danger btn-sm" onclick="deleteProject('${id}')"><i data-lucide="trash-2" class="lucide"></i></button>` : ''}
+        <button class="btn btn-danger btn-sm" onclick="deleteProject('${id}')"><i data-lucide="trash-2" class="lucide"></i></button>
       </div>
     </div>
     ${approvalStrip}
@@ -1584,13 +1584,20 @@ function _refreshProjectsStats() {
 
 function deleteProject(id) {
   if (!confirm('Ștergi acest proiect?')) return;
+  // Șterge din TOATE săptămânile (același _id poate exista în mai multe săptămâni)
   for (const w of state.weeks) {
-    const idx = w.rows.findIndex(r => r._id === id);
-    if (idx > -1) { w.rows.splice(idx, 1); break; }
+    w.rows = w.rows.filter(r => r._id !== id);
   }
-  // Tombstone: marchează ID-ul ca șters ca să nu reapară la sync
+  // Tombstone: marchează ID-ul ca șters permanent
   if (id && !state.deletedIds.includes(id)) state.deletedIds.push(id);
-  saveDB();
+  // Salvare locală
+  localStorage.setItem('romstal_mkt_v2', JSON.stringify({weeks: state.weeks, users: state.users, deletedIds: state.deletedIds}));
+  // Push imediat (nu debounced) — tombstone-ul trebuie să ajungă pe server acum
+  if (API_URL) {
+    clearTimeout(_pushDebounceTimer);
+    _pushDebounceTimer = null;
+    pushToAPI();
+  }
   buildSidebar();
   renderProjects();
 }
