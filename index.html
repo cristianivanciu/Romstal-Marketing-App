@@ -588,7 +588,12 @@ async function pullFromAPI() {
               .filter(r => !r._id || !allDeletedSet.has(r._id))
               .map(r => {
                 const local = r._id ? localRowById[r._id] : null;
-                return local ? {...r, _photos: local._photos || []} : {...r, _photos: []};
+                if (!local) return {...r, _photos: []};
+                // Păstrăm versiunea mai nouă pe baza timestamp-ului
+                const remoteTs = r._updatedAt || r._statusChangedAt || r._createdAt || '';
+                const localTs  = local._updatedAt || local._statusChangedAt || local._createdAt || '';
+                const base = localTs > remoteTs ? local : r;
+                return {...base, _photos: local._photos || []};
               });
             // Rânduri locale care nu sunt în remote — dar nu cele șterse (nici local nici server-side)
             const localOnly = (lw.rows || []).filter(r =>
@@ -790,13 +795,16 @@ function ensureCurrentWeek() {
   if (!exists) {
     // Copy all projects from the most recent previous week (skip current if already added)
     const prevWeek = state.weeks.find(w => w.week !== name) || state.weeks[0];
-    const copiedRows = prevWeek ? prevWeek.rows.map(r => ({
-      ...r,
-      _id: genId(),
-      _photos: r._photos ? [...r._photos] : [],
-      _copiedFrom: prevWeek.week,
-      _copiedAt: new Date().toISOString()
-    })) : [];
+    const deletedSet = new Set(state.deletedIds || []);
+    const copiedRows = prevWeek ? prevWeek.rows
+      .filter(r => !r._id || !deletedSet.has(r._id))
+      .map(r => ({
+        ...r,
+        _id: genId(),
+        _photos: r._photos ? [...r._photos] : [],
+        _copiedFrom: prevWeek.week,
+        _copiedAt: new Date().toISOString()
+      })) : [];
     state.weeks.unshift({ id: genId(), week: name, rows: copiedRows });
     saveDB();
     return { name, count: copiedRows.length };
