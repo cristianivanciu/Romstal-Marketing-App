@@ -589,11 +589,40 @@ async function pullFromAPI() {
               .map(r => {
                 const local = r._id ? localRowById[r._id] : null;
                 if (!local) return {...r, _photos: []};
-                // Păstrăm versiunea mai nouă pe baza timestamp-ului
-                const remoteTs = r._updatedAt || r._statusChangedAt || r._createdAt || '';
-                const localTs  = local._updatedAt || local._statusChangedAt || local._createdAt || '';
+
+                // Baza: versiunea cu timestamp general mai nou
+                const remoteTs = r._updatedAt || r._createdAt || '';
+                const localTs  = local._updatedAt || local._createdAt || '';
                 const base = localTs > remoteTs ? local : r;
-                return {...base, _photos: local._photos || []};
+
+                // Status: câștigă versiunea cu _statusChangedAt mai nou
+                // Dacă local are _statusChangedAt și remote nu, local câștigă statusul
+                const remoteStatusTs = r._statusChangedAt || '';
+                const localStatusTs  = local._statusChangedAt || '';
+                let finalStatus = base['Status'];
+                let finalAprobare = base['Aprobare (notite Andu din sedinta cu dl Perini)'];
+                let finalStatusChangedAt = base._statusChangedAt;
+                let finalStatusChangedBy = base._statusChangedBy;
+                if (localStatusTs > remoteStatusTs) {
+                  finalStatus   = local['Status'];
+                  finalAprobare = local['Aprobare (notite Andu din sedinta cu dl Perini)'];
+                  finalStatusChangedAt = local._statusChangedAt;
+                  finalStatusChangedBy = local._statusChangedBy;
+                } else if (remoteStatusTs > localStatusTs) {
+                  finalStatus   = r['Status'];
+                  finalAprobare = r['Aprobare (notite Andu din sedinta cu dl Perini)'];
+                  finalStatusChangedAt = r._statusChangedAt;
+                  finalStatusChangedBy = r._statusChangedBy;
+                }
+
+                return {
+                  ...base,
+                  'Status': finalStatus,
+                  'Aprobare (notite Andu din sedinta cu dl Perini)': finalAprobare,
+                  _statusChangedAt: finalStatusChangedAt,
+                  _statusChangedBy: finalStatusChangedBy,
+                  _photos: local._photos || []
+                };
               });
             // Rânduri locale care nu sunt în remote — dar nu cele șterse (nici local nici server-side)
             const localOnly = (lw.rows || []).filter(r =>
@@ -795,16 +824,13 @@ function ensureCurrentWeek() {
   if (!exists) {
     // Copy all projects from the most recent previous week (skip current if already added)
     const prevWeek = state.weeks.find(w => w.week !== name) || state.weeks[0];
-    const deletedSet = new Set(state.deletedIds || []);
-    const copiedRows = prevWeek ? prevWeek.rows
-      .filter(r => !r._id || !deletedSet.has(r._id))
-      .map(r => ({
-        ...r,
-        _id: genId(),
-        _photos: r._photos ? [...r._photos] : [],
-        _copiedFrom: prevWeek.week,
-        _copiedAt: new Date().toISOString()
-      })) : [];
+    const copiedRows = prevWeek ? prevWeek.rows.map(r => ({
+      ...r,
+      _id: r._id || genId(),
+      _photos: r._photos ? [...r._photos] : [],
+      _copiedFrom: prevWeek.week,
+      _copiedAt: new Date().toISOString()
+    })) : [];
     state.weeks.unshift({ id: genId(), week: name, rows: copiedRows });
     saveDB();
     return { name, count: copiedRows.length };
@@ -2263,8 +2289,13 @@ function doPost(e) {
       'Explicatii Obiectiv','Observatii','Status','Adaugat De','Adaugat La'];
     const dataRows = [];
     const bgColors = [];
+    const seenIds = new Set(); // dedup: fiecare _id apare o singură dată în Proiecte
     for (const week of finalWeeks) {
       for (const r of (week.rows || [])) {
+        if (r._id) {
+          if (seenIds.has(r._id)) continue;
+          seenIds.add(r._id);
+        }
         const status = r['Status'] || r['Aprobare (notite Andu din sedinta cu dl Perini)'] || '';
         dataRows.push([
           week.week || '', r['Nr crt'] || '', r['Data solicitare'] || '',
